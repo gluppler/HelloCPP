@@ -1,196 +1,214 @@
-# CONTRIBUTING\_EXAMPLES.md
+# CONTRIBUTING\_EXAMPLES.md (C++ Projects)
 
-*(for C++ Projects)*
-
-This document shows practical **C++ code examples** for each of the core contributing principles.
-All contributors should aim to follow these practices to ensure code quality, security, and maintainability.
+This document provides concrete examples of how to apply the **cLc doctrine** to C++ projects. The goal is to maintain a **secure, scalable, and enterprise-grade codebase**.
 
 ---
 
-## 1. Write Clean & Readable Code
+## 1. Project Structure & Build Hygiene
 
-Keep code expressive, simple, and consistent.
+Always separate **headers** (`.hpp`) and **implementations** (`.cpp`).
+Minimize dependencies between modules. Use **modern CMake** for reproducibility.
 
-```cpp
-// ❌ Bad
-int f(int a, int b) { return a+b; }  
+```cmake
+# CMakeLists.txt (minimal, modern CMake)
+cmake_minimum_required(VERSION 3.16)
+project(SecureApp LANGUAGES CXX)
 
-// ✅ Good
-int AddTwoNumbers(int lhs, int rhs) {  
-    return lhs + rhs;  
-}
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library(core STATIC src/core.cpp include/core.hpp)
+target_include_directories(core PUBLIC include)
+target_compile_options(core PRIVATE -Wall -Wextra -Werror -pedantic)
 ```
 
 ---
 
-## 2. Prefer Immutability
+## 2. Immutability First
 
-Avoid unnecessary mutations. Use `const` wherever possible.
+Prefer `const` and immutability. Use `constexpr` for compile-time safety.
 
 ```cpp
-// ❌ Bad
-std::string name = "Alice";
-name = "Bob";  
-
-// ✅ Good
-const std::string name = "Alice";
+// ✅ Immutable
+constexpr int MAX_CONNECTIONS = 100;
+const std::string configPath = "/etc/secure.conf";
 ```
 
 ---
 
-## 3. Modular Design
+## 3. Small, Focused Interfaces
 
-Break complex logic into smaller reusable functions/classes.
-
-```cpp
-// ❌ Bad
-void ProcessData(const std::vector<int>& data) {
-    // too much logic in one function
-    for (int x : data) { /* … */ }
-    // extra unrelated operations here
-}
-
-// ✅ Good
-void ValidateData(const std::vector<int>& data);
-void NormalizeData(std::vector<int>& data);
-void SaveData(const std::vector<int>& data);
-
-void ProcessData(const std::vector<int>& data) {
-    ValidateData(data);
-    auto normalized = data;
-    NormalizeData(normalized);
-    SaveData(normalized);
-}
-```
-
----
-
-## 4. Favor Composition Over Inheritance
-
-Prefer combining objects instead of deep inheritance.
+Headers should declare **only what’s necessary**. No logic in headers.
 
 ```cpp
-// ❌ Bad
-class Bird {
-public: virtual void Fly() = 0;
-};
+// user.hpp
+#pragma once
+#include <string>
 
-class Penguin : public Bird {
-public: void Fly() override {} // Penguins don’t fly — misleading!
-};
-
-// ✅ Good
-class SwimmingAbility {
-public: void Swim();
-};
-
-class Penguin {
-private:
-    SwimmingAbility swim_;
+class User {
 public:
-    void Swim() { swim_.Swim(); }
+    explicit User(std::string name);
+    [[nodiscard]] std::string getName() const;
+private:
+    std::string name_;
 };
 ```
 
 ---
 
-## 5. Explicit Resource Management (RAII)
+## 4. Memory Safety
 
-Always manage resources safely (files, sockets, memory).
+Never use raw `new/delete`. Prefer smart pointers.
 
 ```cpp
-// ✅ Good
-void ReadFile(const std::string& path) {
-    std::ifstream file(path); // RAII ensures file closes automatically
-    if (!file) throw std::runtime_error("Cannot open file");
-}
+// ✅ Prefer
+auto user = std::make_unique<User>("alice");
+
+// ✅ When shared ownership is necessary
+std::shared_ptr<User> sharedUser = std::make_shared<User>("bob");
 ```
 
 ---
 
-## 6. Write Unit Tests
+## 5. Concurrency & Thread Safety
 
-Every function should be tested. Use frameworks like **GoogleTest**.
+Always use RAII locks. Avoid data races.
 
 ```cpp
-// Example with GoogleTest
-#include <gtest/gtest.h>
+#include <mutex>
 
-int Add(int a, int b) { return a + b; }
-
-TEST(MathTests, AddTwoNumbers) {
-    EXPECT_EQ(Add(2, 3), 5);
-}
+class SecureCounter {
+public:
+    void increment() {
+        std::scoped_lock lock(mutex_);
+        ++count_;
+    }
+    int get() const {
+        std::scoped_lock lock(mutex_);
+        return count_;
+    }
+private:
+    mutable std::mutex mutex_;
+    int count_ = 0;
+};
 ```
 
 ---
 
-## 7. Refactor Continuously
+## 6. Error Handling
 
-Prefer clarity over cleverness.
-
-```cpp
-// ❌ Bad
-int a(int b,int c){return b^c;} // unclear
-
-// ✅ Good
-int XOR(int lhs, int rhs) {
-    return lhs ^ rhs; // descriptive
-}
-```
-
----
-
-## 8. Handle Errors Gracefully
-
-Never ignore errors, return results explicitly or throw exceptions.
+Use exceptions for recoverable errors. Don’t return invalid states.
 
 ```cpp
-// ❌ Bad
-int Divide(int a, int b) { return a / b; } // crash if b == 0  
-
-// ✅ Good
-std::optional<int> SafeDivide(int a, int b) {
-    if (b == 0) return std::nullopt;
+int divide(int a, int b) {
+    if (b == 0) throw std::invalid_argument("Division by zero");
     return a / b;
 }
 ```
 
 ---
 
-## 9. Favor Declarative over Imperative
+## 7. Testing & CI
 
-Express *what* needs to be done, not *how* step-by-step.
+Use **GoogleTest** or **Catch2**.
+Enable sanitizers (`-fsanitize=address,undefined`) in CI.
 
 ```cpp
-// ❌ Imperative
-std::vector<int> numbers = {1,2,3,4,5};
-std::vector<int> evens;
-for (int n : numbers) {
-    if (n % 2 == 0) evens.push_back(n);
+TEST(MathTests, Division) {
+    EXPECT_EQ(divide(10, 2), 5);
+    EXPECT_THROW(divide(10, 0), std::invalid_argument);
 }
-
-// ✅ Declarative (C++20 ranges)
-auto evens = numbers
-    | std::views::filter([](int n) { return n % 2 == 0; });
 ```
 
 ---
 
-## 10. Document as You Code
+## 8. Security Practices
 
-Provide clear inline comments and API docs.
+* **Never use unsafe C functions** (`strcpy`, `sprintf`, etc).
+* Use `std::string`, `std::array`, `std::vector`.
+* Compile with **security flags**:
+
+  * `-D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -pie`
 
 ```cpp
-/// Adds two integers and returns the result.
-/// @param lhs Left-hand side integer
-/// @param rhs Right-hand side integer
-/// @return Sum of lhs and rhs
-int Add(int lhs, int rhs);
+// ❌ Unsafe
+char buf[10];
+strcpy(buf, "too long");
+
+// ✅ Safe
+std::string safe = "secure";
 ```
 
 ---
 
-✅ Following these examples will keep the codebase **scalable, secure, and easy to maintain** — similar to projects like **cURL** or **FFmpeg**.
+## 9. Declarative & Modern C++
+
+Prefer STL algorithms and ranges over manual loops.
+
+```cpp
+std::vector<int> numbers = {1, 2, 3, 4, 5};
+std::vector<int> evens;
+
+std::copy_if(numbers.begin(), numbers.end(), std::back_inserter(evens),
+             [](int n){ return n % 2 == 0; });
+```
+
+---
+
+## 10. Code Review Expectations
+
+Pull requests must:
+
+* Be under **300 lines changed** (split large changes).
+* Include **unit tests**.
+* Build & pass sanitizers on **Linux, macOS, Windows**.
+* Avoid **tech debt**: no TODOs, no commented-out code.
+
+---
+
+## 11. Performance & Profiling
+
+* Do not optimize prematurely.
+* Use tools: **perf, valgrind, Google Benchmark**.
+* Document any optimization rationale in PR.
+
+```cpp
+// ✅ Benchmark with Google Benchmark
+static void BM_StringAppend(benchmark::State& state) {
+    for (auto _ : state) {
+        std::string s;
+        s.append("hello");
+    }
+}
+BENCHMARK(BM_StringAppend);
+```
+
+---
+
+## 12. Refactor Often
+
+* Extract long functions.
+* Minimize cyclomatic complexity.
+* One class = one responsibility.
+
+```cpp
+// ❌ Avoid
+class GodClass { /* does everything */ };
+
+// ✅ Prefer
+class UserManager {};
+class PermissionChecker {};
+class AuditLogger {};
+```
+
+---
+
+## Summary
+
+By following these practices, your C++ codebase will be:
+
+* **Secure** (avoids UB, memory corruption, unsafe calls).
+* **Maintainable** (clear, tested, modular).
+* **Enterprise-ready** (cross-platform, CI/CD safe, scalable).
 
 ---
